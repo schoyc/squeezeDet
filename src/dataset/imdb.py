@@ -96,7 +96,7 @@ class imdb(object):
 
     return images, scales
 
-  def read_batch(self, shuffle=True):
+  def read_batch(self, shuffle=True, return_batch_idx=False):
     """Read a batch of image and bounding box annotations.
     Args:
       shuffle: whether or not to shuffle the dataset
@@ -244,6 +244,10 @@ class imdb(object):
       print ('avg iou: {}'.format(avg_ious/num_objects))
       print ('number of objects: {}'.format(num_objects))
       print ('number of objects with 0 iou: {}'.format(num_zero_iou_obj))
+
+    if return_batch_idx:
+      return image_per_batch, label_per_batch, delta_per_batch, \
+        aidx_per_batch, bbox_per_batch, batch_idx
 
     return image_per_batch, label_per_batch, delta_per_batch, \
         aidx_per_batch, bbox_per_batch
