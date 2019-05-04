@@ -1,0 +1,30 @@
+# install dependencies
+pip install -r requirements.txt
+
+
+# Compile eval script
+cd ./src/dataset/kitti-eval
+make
+
+To setup dataset directory structure, download the "vkitti_1.3.1_motgt" zip of all of the VKITTI annotations,
+then `cd datasets` and run `python ./datasets/parse_vkitti_annotations.py`.
+
+Then open ./datasets/parse_rerendered.py, change the input_dir and set_name (e.g. vkitti_original), and run `python ./datasets/parse_rerendered.py`, 
+to parse your directory of original VKITTI files into a mapping and set up the dataset dir for it.
+
+Then take zip file of attack/FGSM results, open ./datasets/parse_adv_rerendered_to_dataset.py and run it.
+
+Example analysis commands:
+
+To compute Evaluation Metrics:
+`python ./src/eval_adv.py --image_set vkitti_original--data_path ./datasets --eval_dir ./eval/train --checkpoint_path ./model_checkpoints/squeezeDet/model.ckpt-87000 --net squeezeDet --run_once
+
+To draw image with its predicted bounding boxes:
+python ./src/eval_image.py --orig_path ./datasets/vkitti_original/image_2/ --adv_path ./datasets/vkitti_set3_fgsm_cars/image_2/ --out_dir rerendered_fgsm_cars
+
+To compute average loss:
+`python ./src/eval_attack.py --data_path ./datasets --image_set vkitti_set3_fgsm_ffd --num_attacks 90 
+
+To compute gradients/pixel-space adv examples:
+`python ./src/adv_attack.py --data_path ./data/VKITTI/ --image_set vkitti_set3_orig --gradient_sign --num_attacks 100 --pgd_iters 1 --pixel_space --learning_rate 1.0 --out_dir ./data/VKITTI/vkitti_originals_poster_pixel_adv_i1 --save_pixel_gradients`
+

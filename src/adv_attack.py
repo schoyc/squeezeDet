@@ -11,7 +11,7 @@ from config import *
 from train import _draw_box
 from nets import *
 
-from dataset import pascal_voc, kitti
+from dataset import pascal_voc, kitti, vkitti
 from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 
 FLAGS = tf.app.flags.FLAGS
@@ -30,15 +30,16 @@ tf.app.flags.DEFINE_string(
 tf.app.flags.DEFINE_string(
     'demo_net', 'squeezeDet', """Neural net architecture.""")
 
+
 tf.app.flags.DEFINE_integer('pgd_iters', 100, "number of iterations to run PGD")
 tf.app.flags.DEFINE_float('learning_rate', 1e2, "learning rate for PGD/FGSM")
 tf.app.flags.DEFINE_boolean('pixel_space', False, "generate examples only in pixel space")
 tf.app.flags.DEFINE_boolean('gradient_sign', False, "update examples with only gradient signs")
+tf.app.flags.DEFINE_integer('num_attacks', 1, "number of adv. examples to generate")
 
-
-
-NUM_ATTACKS = 1
-
+tf.app.flags.DEFINE_boolean('save_pixel_gradients', False, "whether to save pixel gradients")
+tf.app.flags.DEFINE_string(
+    'pixel_save_npz', 'image_grad.npz', """npz to save grads in""")
 
 class SqueezeDetGradientAdversary():
     def __init__(self, model, loss=None, loss_type=None, learning_rate=1e-2):
@@ -95,7 +96,9 @@ class SqueezeDetGradientAdversary():
     def _gradient_step(self, x, grad):
         return x - grad
 
-    def run_pgd(self, img, sess, loss_feed_dict, iters=100, epsilon=8, renderer_gradients=True, gradient_sign=False, log_iters=10):
+    def run_pgd(self, img, sess, loss_feed_dict, iters=100, epsilon=8,
+                renderer_gradients=True, gradient_sign=False, log_iters=1,
+                pixel_gradients_cache=None):
         if renderer_gradients:
             z = self.derender(img)
             x, x_hat = z, z
@@ -120,6 +123,10 @@ class SqueezeDetGradientAdversary():
                 # print("x_hat", x_hat.shape)
                 grad, curr_loss = self.get_pixel_gradients(x_hat, sess, loss_feed_dict)
                 # print("grad", grad.shape)
+
+                if pixel_gradients_cache is not None:
+                  assert(iters == 1) # Need to gen grad one iter at a time
+                  pixel_gradients_cache.append(np.squeeze(grad))
 
             x_hat = self._sign_gradient_step(x_hat, grad) if gradient_sign else self._gradient_step(x_hat, grad)
             # print("x_hat_updated", x_hat.shape)
@@ -213,105 +220,117 @@ def run_attack():
       mc.LOAD_PRETRAINED_MODEL = False
       model = SqueezeDetPlus(mc, FLAGS.gpu)
 
-    imdb = kitti(FLAGS.image_set, FLAGS.data_path, mc)
+    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc)
 
     saver = tf.train.Saver(model.model_params)
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
     saver.restore(sess, FLAGS.checkpoint)
 
-    for i in range(NUM_ATTACKS):
+    # Save image IDs
+    image_ids = []
+    image_pixel_gradients = []
+
+    for i in range(FLAGS.num_attacks):
       x, x_hat = model.adv_image_input, model.image_input
 
       # LOSS can be one or sum of any of model.conf_loss, model.class_loss, model.bbox_loss
       # loss = -model.bbox_loss
-      loss = -(model.class_loss)
+      # loss = -(model.class_loss)
 
+      loss = model.loss
       adversary = SqueezeDetGradientAdversary(model, loss=loss, learning_rate=FLAGS.learning_rate)
 
-      for f in glob.iglob(FLAGS.input_path):
-        # TODO: modify to allow reading from file?
-        # im = cv2.imread(f)
-        # im = im.astype(np.float32, copy=False)
-        # im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
-        # print(im.max(), im.min())
-        # input_image = im - mc.BGR_MEANS
-        # print(type(im), im.shape)
+      # for f in glob.iglob(FLAGS.input_path):
+      # TODO: modify to allow reading from file?
+      # im = cv2.imread(f)
+      # im = im.astype(np.float32, copy=False)
+      # im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
+      # print(im.max(), im.min())
+      # input_image = im - mc.BGR_MEANS
+      # print(type(im), im.shape)
 
-        loss_feed_dict, input_image, labels, bboxs, batch_idx = load_data(imdb, model, mc)
+      loss_feed_dict, input_image, labels, bboxs, batch_idx = load_data(imdb, model, mc)
+      image_ids.append(batch_idx[0])
 
-        print("bounds", input_image[0].max(), input_image[0].min())
+      print("Example:", i, batch_idx[0])
+      print("bounds", input_image[0].max(), input_image[0].min())
 
-        # Generate Adv
-        adv_example = adversary.run_pgd(np.array(input_image), sess, loss_feed_dict,
-                                        iters=FLAGS.pgd_iters, epsilon=8, renderer_gradients=(not FLAGS.pixel_space),
-                                        gradient_sign=FLAGS.gradient_sign
-                                        )
+      # Generate Adv
+      adv_example = adversary.run_pgd(np.array(input_image), sess, loss_feed_dict,
+                                      iters=FLAGS.pgd_iters, epsilon=8, renderer_gradients=(not FLAGS.pixel_space),
+                                      gradient_sign=FLAGS.gradient_sign, pixel_gradients_cache=image_pixel_gradients if FLAGS.save_pixel_gradients else None
+                                      )
 
-        # TODO: Save adv as raw image
-        # TODO: When generating adv. example, increment adv_idx = 00000, save example as KITTI/training_adv/image_2/adv_idx.png, and add adv_idx to ImageSets.txt
-        # TODO: Then take batch_idx (batch of 1), grab KITTI/training/label_2/batch_idx.txt, and copy file into
-        # TODO: KITTI/training_adv/label_2/adv_idx.txt
-        adv_example = [adv_example[0,:,:,:]]
-        todo_file_name = os.path.join(FLAGS.out_dir, "need_to_fix.png")
-        im = adv_example[0] + mc.BGR_MEANS
-        cv2.imwrite(todo_file_name, im)
+      # TODO: Save adv as raw image
+      # TODO: When generating adv. example, increment adv_idx = 00000, save example as KITTI/training_adv/image_2/adv_idx.png, and add adv_idx to ImageSets.txt
+      # TODO: Then take batch_idx (batch of 1), grab KITTI/training/label_2/batch_idx.txt, and copy file into
+      # TODO: KITTI/training_adv/label_2/adv_idx.txt
+      adv_example = [adv_example[0,:,:,:]]
+      todo_file_name = os.path.join(FLAGS.out_dir, "need_to_fix.png")
+      im = adv_example[0] + mc.BGR_MEANS
+      cv2.imwrite(todo_file_name, im)
 
-        ### Evaluate Adv
-        # Adv shape and distortion
-        diff = np.array(adv_example) - np.array(input_image)
-        print("linf norm", np.max(diff), "l2 norm", np.linalg.norm(diff))
+      ### Evaluate Adv
+      # Adv shape and distortion
+      diff = np.array(adv_example) - np.array(input_image)
+      print("linf norm", np.max(diff), "l2 norm", np.linalg.norm(diff))
 
-        # Adv loss
-        assign_image = tf.assign(model.image_input, model.adv_image_input)
-        for name, image in [("benign", input_image), ("adv", adv_example)]:
-            # Detect
-            sess.run(assign_image, feed_dict={model.adv_image_input: image})
+      # Adv loss
+      assign_image = tf.assign(model.image_input, model.adv_image_input)
+      for name, image in [("benign", input_image), ("adv", adv_example)]:
+          # Detect
+          sess.run(assign_image, feed_dict={model.adv_image_input: image})
 
-            # Loss
-            print("Running loss")
-            _loss = sess.run(loss, feed_dict=loss_feed_dict)
-            print("LOSS:", _loss)
+          # Loss
+          print("Running loss")
+          _attack_loss, _model_loss = sess.run([loss, model.loss], feed_dict=loss_feed_dict)
+          print("LOSS: (attack)", _attack_loss, "(model)", _model_loss)
 
-            # Render and save image
-            det_boxes, det_probs, det_class = sess.run(
-                [model.det_boxes, model.det_probs, model.det_class],
-                # feed_dict={model.image_input:[input_image]}
-            )
+          # Render and save image
+          det_boxes, det_probs, det_class = sess.run(
+              [model.det_boxes, model.det_probs, model.det_class],
+              # feed_dict={model.image_input:[input_image]}
+          )
 
-            im = image[0] + mc.BGR_MEANS
-            print(name, type(im), im.shape)
+          im = image[0] + mc.BGR_MEANS
+          print(name, type(im), im.shape)
 
-            # Filter
-            final_boxes, final_probs, final_class = model.filter_prediction(
-                det_boxes[0], det_probs[0], det_class[0])
-
-            keep_idx    = [idx for idx in range(len(final_probs)) \
-                              if final_probs[idx] > mc.PLOT_PROB_THRESH]
-            final_boxes = [final_boxes[idx] for idx in keep_idx]
-            final_probs = [final_probs[idx] for idx in keep_idx]
-            final_class = [final_class[idx] for idx in keep_idx]
-
-            # TODO(bichen): move this color dict to configuration file
-            cls2clr = {
-                'car': (255, 191, 0),
-                'cyclist': (0, 191, 255),
-                'pedestrian':(255, 0, 191)
-            }
-
-            # Draw boxes
-            _draw_box(
-                im, final_boxes,
-                [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
-                    for idx, prob in zip(final_class, final_probs)],
-                cdict=cls2clr,
-            )
-
-            file_name = os.path.split(f)[1]
-            out_file_name = os.path.join(FLAGS.out_dir, 'out_'+ name + "_" + batch_idx[0] + '_' + file_name)
+          if name == "adv":
+            out_file_name = os.path.join(FLAGS.out_dir, "image_2", batch_idx[0] + '.png')
+            print ('Image output saved to {}'.format(out_file_name))
             cv2.imwrite(out_file_name, im)
-            print ('Image detection output saved to {}'.format(out_file_name))
 
+          # Filter
+          final_boxes, final_probs, final_class = model.filter_prediction(
+              det_boxes[0], det_probs[0], det_class[0])
 
+          keep_idx    = [idx for idx in range(len(final_probs)) \
+                            if final_probs[idx] > mc.PLOT_PROB_THRESH]
+          final_boxes = [final_boxes[idx] for idx in keep_idx]
+          final_probs = [final_probs[idx] for idx in keep_idx]
+          final_class = [final_class[idx] for idx in keep_idx]
+
+          # TODO(bichen): move this color dict to configuration file
+          cls2clr = {
+              'car': (255, 191, 0),
+              'cyclist': (0, 191, 255),
+              'pedestrian':(255, 0, 191)
+          }
+
+          # Draw boxes
+          _draw_box(
+              im, final_boxes,
+              [mc.CLASS_NAMES[idx]+': (%.2f)'% prob \
+                  for idx, prob in zip(final_class, final_probs)],
+              cdict=cls2clr,
+          )
+
+          file_name = 'sample.png'
+          out_file_name = os.path.join(FLAGS.out_dir, 'out_'+ name + "_" + batch_idx[0] + '_' + file_name)
+          cv2.imwrite(out_file_name, im)
+          print ('Image detection output saved to {}'.format(out_file_name))
+
+      np.savez_compressed(FLAGS.pixel_save_npz, image_train_ids=image_ids, image_pixel_gradients=image_pixel_gradients)
 def main(argv=None):
   if not tf.gfile.Exists(FLAGS.out_dir):
     tf.gfile.MakeDirs(FLAGS.out_dir)
