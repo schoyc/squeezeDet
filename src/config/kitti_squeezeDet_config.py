@@ -1,10 +1,10 @@
 # Author: Bichen Wu (bichen@berkeley.edu) 08/25/2016
 
 """Model configuration for pascal dataset"""
-
+from __future__ import absolute_import
 import numpy as np
 
-from config import base_model_config
+from .config import base_model_config
 
 def kitti_squeezeDet_config():
   """Specify the parameters to tune below."""
