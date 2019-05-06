@@ -3,16 +3,16 @@ import time
 import sys
 import os
 import glob
-
+from __future__ import absolute_import
 import numpy as np
 import tensorflow as tf
 
-from config import *
-from train import _draw_box
-from nets import *
+from .config import *
+from .train import _draw_box
+from .nets import *
 
-from dataset import pascal_voc, kitti, vkitti
-from utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
+from .dataset import pascal_voc, kitti, vkitti
+from .utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 
 FLAGS = tf.app.flags.FLAGS
 
