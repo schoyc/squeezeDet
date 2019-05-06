@@ -8,7 +8,7 @@ import numpy as np
 import subprocess
 
 from dataset.imdb import imdb
-from utils.util import bbox_transform_inv, batch_iou
+from sqdet_utils.util import bbox_transform_inv, batch_iou
 
 class vkitti(imdb):
   def __init__(self, image_set, data_path, mc):

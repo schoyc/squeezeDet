@@ -9,7 +9,7 @@ import shutil
 from PIL import Image, ImageFont, ImageDraw
 import cv2
 import numpy as np
-from utils.util import iou, batch_iou
+from sqdet_utils.util import iou, batch_iou
 
 class imdb(object):
   """Image database."""
@@ -147,6 +147,8 @@ class imdb(object):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
+      print("IDX", batch_idx)
+      print(gt_bbox)
 
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \

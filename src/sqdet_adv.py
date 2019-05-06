@@ -6,7 +6,7 @@ import tensorflow as tf
 from config import *
 from nets import *
 from dataset import vkitti
-from utils.util import sparse_to_dense
+from sqdet_utils.util import sparse_to_dense
 
 
 class SqueezeDetGrads():
