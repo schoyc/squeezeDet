@@ -39,13 +39,13 @@ class SqueezeDetGrads():
   def load_dataset(self, data_path, imageset):
     self.imdb = vkitti(imageset, data_path, self.mc)
 
-  def load_data(self, shuffle=False):
+  def load_data(self, image_idx=None, shuffle=False):
     if self.imdb is None:
       raise ValueError("Dataset not loaded, need to call load_dataset() first.")
     model, mc = self.model, self.mc
     # read batch input
     image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-    bbox_per_batch, batch_idx = self.imdb.read_batch(return_batch_idx=True, shuffle=shuffle)  # TODO: Modify to return batch idxs
+    bbox_per_batch, batch_idx = self.imdb.read_batch(image_idx=image_idx, return_batch_idx=True, shuffle=shuffle)  # TODO: Modify to return batch idxs
 
     label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
       = [], [], [], [], []
@@ -115,7 +115,7 @@ class SqueezeDetGrads():
 if __name__ == '__main__':
   adversary = SqueezeDetGrads("model_checkpoints/squeezeDet/model.ckpt-87000")
   adversary.load_dataset("./data/VKITTI", "vkitti_originals_poster")
-  loss_feed_dict, input_image, labels, bboxs, batch_idx = adversary.load_data()
+  loss_feed_dict, input_image, labels, bboxs, batch_idx = adversary.load_data(image_idx=[1])
 
   grad, loss = adversary.get_pixel_gradients(loss_feed_dict)
   print("LOSS:", loss)

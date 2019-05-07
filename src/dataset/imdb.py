@@ -96,7 +96,7 @@ class imdb(object):
 
     return images, scales
 
-  def read_batch(self, shuffle=True, return_batch_idx=False):
+  def read_batch(self, image_idx=None, shuffle=True, return_batch_idx=False):
     """Read a batch of image and bounding box annotations.
     Args:
       shuffle: whether or not to shuffle the dataset
@@ -112,7 +112,9 @@ class imdb(object):
     """
     mc = self.mc
 
-    if shuffle:
+    if image_idx is not None:
+      batch_idx = ["%05d" % i for i in image_idx]
+    elif shuffle:
       if self._cur_idx + mc.BATCH_SIZE >= len(self._image_idx):
         self._shuffle_image_idx()
       batch_idx = self._perm_idx[self._cur_idx:self._cur_idx+mc.BATCH_SIZE]
@@ -147,8 +149,6 @@ class imdb(object):
       # load annotations
       label_per_batch.append([b[4] for b in self._rois[idx][:]])
       gt_bbox = np.array([[b[0], b[1], b[2], b[3]] for b in self._rois[idx][:]])
-      print("IDX", batch_idx)
-      print(gt_bbox)
 
       if mc.DATA_AUGMENTATION:
         assert mc.DRIFT_X >= 0 and mc.DRIFT_Y > 0, \
