@@ -1,0 +1,231 @@
+import cv2
+import time
+import sys
+import os
+import glob
+
+import numpy as np
+import tensorflow as tf
+
+from config import *
+from train import _draw_box
+from nets import *
+
+from dataset import pascal_voc, kitti, vkitti
+from sqdet_utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
+
+FLAGS = tf.app.flags.FLAGS
+
+tf.app.flags.DEFINE_string(
+    'mode', 'image', """'image' or 'video'.""")
+tf.app.flags.DEFINE_string(
+    'checkpoint', './data/model_checkpoints/squeezeDet/model.ckpt-87000',
+    """Path to the model parameter file.""")
+tf.app.flags.DEFINE_string(
+    'input_path', './data/sample.png',
+    """Input image or video to be detected. Can process glob input such as """
+    """./data/00000*.png.""")
+tf.app.flags.DEFINE_string(
+    'out_dir', './data/out/', """Directory to dump output image or video.""")
+tf.app.flags.DEFINE_string(
+    'demo_net', 'squeezeDet', """Neural net architecture.""")
+
+
+tf.app.flags.DEFINE_integer('pgd_iters', 100, "number of iterations to run PGD")
+tf.app.flags.DEFINE_float('learning_rate', 1e2, "learning rate for PGD/FGSM")
+tf.app.flags.DEFINE_boolean('pixel_space', False, "generate examples only in pixel space")
+tf.app.flags.DEFINE_boolean('gradient_sign', False, "update examples with only gradient signs")
+tf.app.flags.DEFINE_integer('num_attacks', 1, "number of adv. examples to generate")
+
+tf.app.flags.DEFINE_boolean('save_pixel_gradients', False, "whether to save pixel gradients")
+tf.app.flags.DEFINE_string(
+    'pixel_save_npz', 'image_grad.npz', """npz to save grads in""")
+
+def load_data(imdb, model, mc):
+    # read batch input
+    image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
+    bbox_per_batch, batch_idx = imdb.read_batch(return_batch_idx=True) #TODO: Modify to return batch idxs
+
+    label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
+        = [], [], [], [], []
+    aidx_set = set()
+    num_discarded_labels = 0
+    num_labels = 0
+    for i in range(len(label_per_batch)):  # batch_size
+        for j in range(len(label_per_batch[i])):  # number of annotations
+            num_labels += 1
+            if (i, aidx_per_batch[i][j]) not in aidx_set:
+                aidx_set.add((i, aidx_per_batch[i][j]))
+                label_indices.append(
+                    [i, aidx_per_batch[i][j], label_per_batch[i][j]])
+                mask_indices.append([i, aidx_per_batch[i][j]])
+                bbox_indices.extend(
+                    [[i, aidx_per_batch[i][j], k] for k in range(4)])
+                box_delta_values.extend(box_delta_per_batch[i][j])
+                box_values.extend(bbox_per_batch[i][j])
+            else:
+                num_discarded_labels += 1
+
+    if mc.DEBUG_MODE:
+        print ('Warning: Discarded {}/({}) labels that are assigned to the same '
+               'anchor'.format(num_discarded_labels, num_labels))
+
+
+    image_input = model.adv_image_input
+    input_mask = model.input_mask
+    box_delta_input = model.box_delta_input
+    box_input = model.box_input
+    labels = model.labels
+
+    feed_dict = {
+        # image_input: image_per_batch,
+        input_mask: np.reshape(
+            sparse_to_dense(
+                mask_indices, [mc.BATCH_SIZE, mc.ANCHORS],
+                [1.0] * len(mask_indices)),
+            [mc.BATCH_SIZE, mc.ANCHORS, 1]),
+        box_delta_input: sparse_to_dense(
+            bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+            box_delta_values),
+        box_input: sparse_to_dense(
+            bbox_indices, [mc.BATCH_SIZE, mc.ANCHORS, 4],
+            box_values),
+        labels: sparse_to_dense(
+            label_indices,
+            [mc.BATCH_SIZE, mc.ANCHORS, mc.CLASSES],
+            [1.0] * len(label_indices)),
+    }
+
+    return feed_dict, image_per_batch, label_per_batch, bbox_per_batch, batch_idx
+
+
+def run_attack():
+  """Detect image."""
+
+  assert FLAGS.demo_net == 'squeezeDet' or FLAGS.demo_net == 'squeezeDet+', \
+      'Selected nueral net architecture not supported: {}'.format(FLAGS.demo_net)
+
+
+  with tf.Graph().as_default():
+    # Load model
+    if FLAGS.demo_net == 'squeezeDet':
+      mc = kitti_squeezeDet_config()
+      mc.BATCH_SIZE = 1
+      # model parameters will be restored from checkpoint
+      mc.LOAD_PRETRAINED_MODEL = False
+      model = SqueezeDetAdv(mc, FLAGS.gpu)
+    elif FLAGS.demo_net == 'squeezeDet+':
+      mc = kitti_squeezeDetPlus_config()
+      mc.BATCH_SIZE = 1
+      mc.LOAD_PRETRAINED_MODEL = False
+      model = SqueezeDetPlus(mc, FLAGS.gpu)
+
+    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc)
+
+    saver = tf.train.Saver(model.model_params)
+    sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
+    saver.restore(sess, FLAGS.checkpoint)
+
+    # Save image IDs
+    image_ids = []
+    image_pixel_gradients = []
+
+    def get_loss_output(image):
+      # Detect
+      sess.run(assign_image, feed_dict={model.adv_image_input: image})
+
+      # Loss
+      print("Running loss")
+      _attack_loss, _model_loss = sess.run([loss, model.loss], feed_dict=loss_feed_dict)
+      print("LOSS: (attack)", _attack_loss, "(model)", _model_loss)
+
+      # Render and save image
+      det_boxes, det_probs, det_class = sess.run(
+        [model.det_boxes, model.det_probs, model.det_class],
+        # feed_dict={model.image_input:[input_image]}
+      )
+
+      # im = image[0] + mc.BGR_MEANS
+      # print(name, type(im), im.shape)
+      #
+      # if name == "adv":
+      #   out_file_name = os.path.join(FLAGS.out_dir, "image_2", batch_idx[0] + '.png')
+      #   cv2.imwrite(out_file_name, im)
+
+      # Filter
+      final_boxes, final_probs, final_class = model.filter_prediction(
+        det_boxes[0], det_probs[0], det_class[0])
+
+      keep_idx = [idx for idx in range(len(final_probs)) \
+                  if final_probs[idx] > mc.PLOT_PROB_THRESH]
+      final_boxes = [final_boxes[idx] for idx in keep_idx]
+      final_probs = [final_probs[idx] for idx in keep_idx]
+      final_class = [final_class[idx] for idx in keep_idx]
+
+      return _model_loss, final_boxes, final_probs, final_class
+
+    losses = []
+    for i in range(FLAGS.num_attacks):
+      x, x_hat = model.adv_image_input, model.image_input
+
+      # LOSS can be one or sum of any of model.conf_loss, model.class_loss, model.bbox_loss
+      # loss = -model.bbox_loss
+      # loss = -(model.class_loss)
+
+      loss = model.loss
+      # adversary = SqueezeDetGradientAdversary(model, loss=loss, learning_rate=FLAGS.learning_rate)
+
+      # for f in glob.iglob(FLAGS.input_path):
+      # TODO: modify to allow reading from file?
+      # im = cv2.imread(f)
+      # im = im.astype(np.float32, copy=False)
+      # im = cv2.resize(im, (mc.IMAGE_WIDTH, mc.IMAGE_HEIGHT))
+      # print(im.max(), im.min())
+      # input_image = im - mc.BGR_MEANS
+      # print(type(im), im.shape)
+
+      loss_feed_dict, input_image, labels, bboxs, batch_idx = load_data(imdb, model, mc)
+      image_ids.append(batch_idx[0])
+
+      print("Example:", i, batch_idx[0])
+      print("bounds", input_image[0].max(), input_image[0].min())
+
+      # Generate Adv
+      # adv_example = adversary.run_pgd(np.array(input_image), sess, loss_feed_dict,
+      #                                 iters=FLAGS.pgd_iters, epsilon=8, renderer_gradients=(not FLAGS.pixel_space),
+      #                                 gradient_sign=FLAGS.gradient_sign, pixel_gradients_cache=image_pixel_gradients if FLAGS.save_pixel_gradients else None
+      #                                 )
+
+      # TODO: Save adv as raw image
+      # TODO: When generating adv. example, increment adv_idx = 00000, save example as KITTI/training_adv/image_2/adv_idx.png, and add adv_idx to ImageSets.txt
+      # TODO: Then take batch_idx (batch of 1), grab KITTI/training/label_2/batch_idx.txt, and copy file into
+      # TODO: KITTI/training_adv/label_2/adv_idx.txt
+      # adv_example = [adv_example[0,:,:,:]]
+      # todo_file_name = os.path.join(FLAGS.out_dir, "need_to_fix.png")
+      # im = adv_example[0] + mc.BGR_MEANS
+      # cv2.imwrite(todo_file_name, im)
+
+      ### Evaluate Adv
+      # Adv shape and distortion
+      # diff = np.array(adv_example) - np.array(input_image)
+      # print("linf norm", np.max(diff), "l2 norm", np.linalg.norm(diff))
+
+      # Adv loss
+      assign_image = tf.assign(model.image_input, model.adv_image_input)
+      loss, _, _, _ = get_loss_output(input_image)
+      losses.append(loss)
+    losses = np.array(losses)
+    print("AVG LOSS", np.mean(losses), np.median(losses), np.std(losses), losses.shape)
+
+
+
+
+      # np.savez_compressed(FLAGS.pixel_save_npz, image_train_ids=image_ids, image_pixel_gradients=image_pixel_gradients)
+def main(argv=None):
+  if not tf.gfile.Exists(FLAGS.out_dir):
+    tf.gfile.MakeDirs(FLAGS.out_dir)
+  run_attack()
+
+if __name__ == '__main__':
+    tf.app.run()
+

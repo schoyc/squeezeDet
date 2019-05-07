@@ -10,7 +10,7 @@ from sqdet_utils.util import sparse_to_dense
 
 
 class SqueezeDetGrads():
-  def __init__(self, model_checkpoint, learning_rate=1):
+  def __init__(self, model_checkpoint, loss_types="all", learning_rate=1):
     mc = kitti_squeezeDet_config()
     mc.BATCH_SIZE = 1
     # model parameters will be restored from checkpoint
@@ -26,20 +26,26 @@ class SqueezeDetGrads():
     self.model = model
     self.mc = mc
     self.learning_rate = learning_rate
-    self.loss = model.loss
+
+    losses = {
+      'classification': model.class_loss,
+      'confidence': model.conf_loss,
+      'bbox': model.bbox_loss
+    }
+    self.loss = model.loss if loss_types == "all" else tf.add_n([losses[lt] for lt in loss_types])
     self.grads = tf.gradients(self.loss, [model.image_input])
     self.imdb = None
 
   def load_dataset(self, data_path, imageset):
     self.imdb = vkitti(imageset, data_path, self.mc)
 
-  def load_data(self):
+  def load_data(self, shuffle=False):
     if self.imdb is None:
       raise ValueError("Dataset not loaded, need to call load_dataset() first.")
     model, mc = self.model, self.mc
     # read batch input
     image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-    bbox_per_batch, batch_idx = self.imdb.read_batch(return_batch_idx=True)  # TODO: Modify to return batch idxs
+    bbox_per_batch, batch_idx = self.imdb.read_batch(return_batch_idx=True, shuffle=shuffle)  # TODO: Modify to return batch idxs
 
     label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
       = [], [], [], [], []
