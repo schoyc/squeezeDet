@@ -17,8 +17,8 @@ from six.moves import xrange
 import tensorflow as tf
 
 from config import *
-from dataset import pascal_voc, kitti
-from utils.util import bbox_transform, Timer
+from dataset import kitti, vkitti
+from sqdet_utils.util import bbox_transform, Timer
 from nets import *
 
 FLAGS = tf.app.flags.FLAGS
@@ -40,6 +40,8 @@ tf.app.flags.DEFINE_integer('eval_interval_secs', 60 * 1,
                              """How often to check if new cpt is saved.""")
 tf.app.flags.DEFINE_boolean('run_once', False,
                              """Whether to run eval only once.""")
+tf.app.flags.DEFINE_boolean('save_eval', False,
+                             """Whether to save eval only once.""")
 tf.app.flags.DEFINE_string('net', 'squeezeDet',
                            """Neural net architecture.""")
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
@@ -127,7 +129,7 @@ def eval_once(
 
     print ('Analyzing detections...')
     stats, ims = imdb.do_detection_analysis_in_eval(
-        FLAGS.eval_dir, global_step)
+        FLAGS.eval_dir, global_step, other_data=[np.mean(aps)])
 
     eval_summary_str = sess.run(eval_summary_ops, feed_dict=feed_dict)
     for sum_str in eval_summary_str:
@@ -135,10 +137,10 @@ def eval_once(
 
 def evaluate():
   """Evaluate."""
-  assert FLAGS.dataset == 'KITTI', \
-      'Currently only supports KITTI dataset'
+  # assert FLAGS.dataset == 'KITTI', \
+  #     'Currently only supports KITTI dataset'
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
+  # os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
   with tf.Graph().as_default() as g:
 
@@ -166,7 +168,7 @@ def evaluate():
       mc.LOAD_PRETRAINED_MODEL = False
       model = SqueezeDetPlus(mc)
 
-    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc)
+    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc, eval_csv="./eval_results_adv.csv" if FLAGS.save_eval else None)
 
     # add summary ops and placeholders
     ap_names = []

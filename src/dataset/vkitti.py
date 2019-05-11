@@ -6,12 +6,15 @@ import cv2
 import os 
 import numpy as np
 import subprocess
+import csv
+
+from collections import OrderedDict
 
 from dataset.imdb import imdb
 from sqdet_utils.util import bbox_transform_inv, batch_iou
 
 class vkitti(imdb):
-  def __init__(self, image_set, data_path, mc):
+  def __init__(self, image_set, data_path, mc, eval_csv=None):
     imdb.__init__(self, 'vkitti_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
@@ -33,6 +36,7 @@ class vkitti(imdb):
     self._shuffle_image_idx()
 
     self._eval_tool = './src/dataset/kitti-eval/cpp/evaluate_object'
+    self.eval_csv = eval_csv
 
   def _load_image_set_idx(self):
     image_set_file = os.path.join(
@@ -158,7 +162,7 @@ class vkitti(imdb):
 
     return aps, names
 
-  def do_detection_analysis_in_eval(self, eval_dir, global_step):
+  def do_detection_analysis_in_eval(self, eval_dir, global_step, other_data=[]):
     det_file_dir = os.path.join(
       eval_dir, 'detection_files_{:s}'.format(self._image_set), 'data')
     det_error_dir = os.path.join(
@@ -168,7 +172,7 @@ class vkitti(imdb):
       os.makedirs(det_error_dir)
     det_error_file = os.path.join(det_error_dir, 'det_error_file.txt')
 
-    stats = self.analyze_detections(det_file_dir, det_error_file)
+    stats = self.analyze_detections(det_file_dir, det_error_file, other_data=other_data)
     ims = self.visualize_detections(
         image_dir=self._image_path,
         image_format='.png',
@@ -179,7 +183,7 @@ class vkitti(imdb):
 
     return stats, ims
 
-  def analyze_detections(self, detection_file_dir, det_error_file):
+  def analyze_detections(self, detection_file_dir, det_error_file, other_data=[]):
     def _save_detection(f, idx, error_type, det, score):
       f.write(
           '{:s} {:s} {:.1f} {:.1f} {:.1f} {:.1f} {:s} {:.3f}\n'.format(
@@ -283,7 +287,7 @@ class vkitti(imdb):
     print ('    Recall: {}'.format(
       num_detected_obj/num_objs))
 
-    out = {}
+    out = OrderedDict({})
     out['num of detections'] = num_dets
     out['num of objects'] = num_objs
     out['% correct detections'] = num_correct/num_dets
@@ -292,5 +296,11 @@ class vkitti(imdb):
     out['% background error'] = num_bg_error/num_dets
     out['% repeated error'] = num_repeated_error/num_dets
     out['% recall'] = num_detected_obj/num_objs
+
+    if self.eval_csv is not None:
+      # Check if columns already set
+      with open(self.eval_csv, 'a+') as eval_csv:
+        writer = csv.writer(eval_csv)
+        writer.writerow([self._image_set] + [str(out[key])[:5] for key in out] + [str(d)[:5] for d in other_data])
 
     return out

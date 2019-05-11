@@ -1,18 +1,19 @@
+from __future__ import absolute_import
+
 import cv2
 import time
 import sys
 import os
 import glob
-from __future__ import absolute_import
 import numpy as np
 import tensorflow as tf
 
-from .config import *
-from .train import _draw_box
-from .nets import *
+from config import *
+from train import _draw_box
+from nets import *
 
-from .dataset import pascal_voc, kitti, vkitti
-from .utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
+from dataset import kitti, vkitti
+from sqdet_utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -91,10 +92,10 @@ class SqueezeDetGradientAdversary():
         return z
 
     def _sign_gradient_step(self, x, grad):
-        return x - np.sign(grad)
+        return x + np.sign(grad)
 
     def _gradient_step(self, x, grad):
-        return x - grad
+        return x + grad
 
     def run_pgd(self, img, sess, loss_feed_dict, iters=100, epsilon=8,
                 renderer_gradients=True, gradient_sign=False, log_iters=1,
@@ -112,8 +113,9 @@ class SqueezeDetGradientAdversary():
         below = x - epsilon
         above = x + epsilon
 
+        best_adv, best_loss = None, 0
         # x_hat is running adv. example
-        for i in range(iters):
+        for i in range(iters + 1):
             if renderer_gradients:
                 img_hat = self.render(x_hat)  # z -> img
                 pixel_grad, curr_loss = self.get_pixel_gradients(img_hat, sess, loss_feed_dict)  # dL/dimg
@@ -128,6 +130,10 @@ class SqueezeDetGradientAdversary():
                   assert(iters == 1) # Need to gen grad one iter at a time
                   pixel_gradients_cache.append(np.squeeze(grad))
 
+            if i == 0 or curr_loss > best_loss:
+              best_adv, best_loss = x_hat, curr_loss
+              # print("Best loss at iter:", i, best_loss)
+
             x_hat = self._sign_gradient_step(x_hat, grad) if gradient_sign else self._gradient_step(x_hat, grad)
             # print("x_hat_updated", x_hat.shape)
             x_hat = np.clip(np.clip(x_hat, below, above), low, high)
@@ -136,7 +142,7 @@ class SqueezeDetGradientAdversary():
             if i % log_iters == 0:
                 print('step %d, loss=%g' % (i, curr_loss))
 
-        return x_hat
+        return best_adv
 
     def run_fgsm(self, img, sess, loss_feed_dict, epsilon=8, renderer_gradients=True):
         return self.run_pgd(img, sess, loss_feed_dict, epsilon=epsilon, renderer_gradients=renderer_gradients, iters=1,
@@ -145,7 +151,7 @@ class SqueezeDetGradientAdversary():
 def load_data(imdb, model, mc):
     # read batch input
     image_per_batch, label_per_batch, box_delta_per_batch, aidx_per_batch, \
-    bbox_per_batch, batch_idx = imdb.read_batch(return_batch_idx=True) #TODO: Modify to return batch idxs
+    bbox_per_batch, batch_idx = imdb.read_batch(shuffle=False, return_batch_idx=True) #TODO: Modify to return batch idxs
 
     label_indices, bbox_indices, box_delta_values, mask_indices, box_values, \
         = [], [], [], [], []
@@ -237,7 +243,7 @@ def run_attack():
       # loss = -model.bbox_loss
       # loss = -(model.class_loss)
 
-      loss = model.loss
+      loss = model.conf_loss + model.class_loss
       adversary = SqueezeDetGradientAdversary(model, loss=loss, learning_rate=FLAGS.learning_rate)
 
       # for f in glob.iglob(FLAGS.input_path):

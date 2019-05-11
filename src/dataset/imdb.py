@@ -289,7 +289,7 @@ class imdb(object):
     out_ims = []
     # Randomly select some detections and plot them
     COLOR = (200, 200, 0)
-    for error_type, dets in dets_per_type.iteritems():
+    for error_type, dets in dets_per_type.items():
       det_im_dir = os.path.join(output_image_dir, error_type)
       if os.path.exists(det_im_dir):
         shutil.rmtree(det_im_dir)
