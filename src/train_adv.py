@@ -18,7 +18,7 @@ import tensorflow as tf
 import threading
 
 from config import *
-from dataset import kitti, vkitti
+from dataset import vkitti
 from sqdet_utils.util import sparse_to_dense, bgr_to_rgb, bbox_transform
 from nets import *
 
@@ -319,6 +319,7 @@ def train():
 
       # Save the model checkpoint periodically.
       if step % FLAGS.checkpoint_step == 0 or (step + 1) == FLAGS.max_steps:
+        print("[debug] saving checkpoint!")
         checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
         saver.save(sess, checkpoint_path, global_step=step)
     # except Exception, e:
