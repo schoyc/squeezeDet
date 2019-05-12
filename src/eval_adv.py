@@ -17,7 +17,7 @@ from six.moves import xrange
 import tensorflow as tf
 
 from config import *
-from dataset import kitti, vkitti
+from dataset import vkitti
 from sqdet_utils.util import bbox_transform, Timer
 from nets import *
 
