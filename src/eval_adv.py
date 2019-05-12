@@ -131,6 +131,10 @@ def eval_once(
     stats, ims = imdb.do_detection_analysis_in_eval(
         FLAGS.eval_dir, global_step, other_data=[np.mean(aps)])
 
+    out = stats
+    for key, val in out.items():
+      feed_dict[eval_summary_phs["detection_analysis/%s" % key]] = val
+
     eval_summary_str = sess.run(eval_summary_ops, feed_dict=feed_dict)
     for sum_str in eval_summary_str:
       summary_writer.add_summary(sum_str, global_step)
@@ -203,6 +207,48 @@ def evaluate():
     ph = tf.placeholder(tf.float32)
     eval_summary_phs['num_det_per_image'] = ph
     eval_summary_ops.append(tf.summary.scalar('num_det_per_image', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/num of detections'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/num of detections', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/num of objects'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/num of objects', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/% correct detections'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/% correct detections', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/% localization error'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/% localization error', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/% classification error'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/% classification error', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/% background error'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/% background error', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/% repeated error'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/% repeated error', ph))
+
+    ph = tf.placeholder(tf.float32)
+    eval_summary_phs['detection_analysis/% recall'] = ph
+    eval_summary_ops.append(tf.summary.scalar('detection_analysis/% recall', ph))
+
+    out = OrderedDict({})
+    out['num of detections'] = num_dets
+    out['num of objects'] = num_objs
+    out['% correct detections'] = num_correct / num_dets
+    out['% localization error'] = num_loc_error / num_dets
+    out['% classification error'] = num_cls_error / num_dets
+    out['% background error'] = num_bg_error / num_dets
+    out['% repeated error'] = num_repeated_error / num_dets
+    out['% recall'] = num_detected_obj / num_objs
 
     saver = tf.train.Saver(model.model_params)
 
