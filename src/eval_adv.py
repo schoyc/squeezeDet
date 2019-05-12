@@ -240,16 +240,6 @@ def evaluate():
     eval_summary_phs['detection_analysis/% recall'] = ph
     eval_summary_ops.append(tf.summary.scalar('detection_analysis/% recall', ph))
 
-    out = OrderedDict({})
-    out['num of detections'] = num_dets
-    out['num of objects'] = num_objs
-    out['% correct detections'] = num_correct / num_dets
-    out['% localization error'] = num_loc_error / num_dets
-    out['% classification error'] = num_cls_error / num_dets
-    out['% background error'] = num_bg_error / num_dets
-    out['% repeated error'] = num_repeated_error / num_dets
-    out['% recall'] = num_detected_obj / num_objs
-
     saver = tf.train.Saver(model.model_params)
 
     summary_writer = tf.summary.FileWriter(FLAGS.eval_dir, g)
