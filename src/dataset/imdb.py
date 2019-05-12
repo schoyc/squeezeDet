@@ -113,7 +113,7 @@ class imdb(object):
     mc = self.mc
 
     if image_idx is not None:
-      batch_idx = ["%05d" % i for i in image_idx]
+      batch_idx = [self._image_idx[i] for i in image_idx]
     elif shuffle:
       if self._cur_idx + mc.BATCH_SIZE >= len(self._image_idx):
         self._shuffle_image_idx()
