@@ -22,6 +22,7 @@ class vkitti(imdb):
     self._label_path = os.path.join(self._data_root_path, image_set, 'label_2')
     self._classes = self.mc.CLASS_NAMES
     self._class_to_idx = dict(zip(self.classes, range(self.num_classes)))
+    self.subset_tag = subset_tag
 
     # a list of string indices of images in the directory
     self._image_idx = self._load_image_set_idx() 
@@ -37,7 +38,6 @@ class vkitti(imdb):
 
     self._eval_tool = './src/dataset/kitti-eval/cpp/evaluate_object'
     self.eval_csv = eval_csv
-    self.subset_tag = subset_tag
 
   def _load_image_set_idx(self):
     image_set_file = os.path.join(
