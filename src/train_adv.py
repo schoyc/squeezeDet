@@ -113,6 +113,7 @@ def train():
     if FLAGS.net == 'squeezeDet':
       mc = kitti_squeezeDet_config()
       mc.LOAD_PRETRAINED_MODEL = False
+      mc.LEARNING_RATE = 1e-3
       mc.IS_TRAINING = True
       # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDet(mc)
@@ -231,8 +232,6 @@ def train():
     saver = tf.train.Saver(model.model_params)
     summary_op = tf.summary.merge_all()
 
-    saver.restore(sess, FLAGS.checkpoint)
-
     # ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     # if ckpt and ckpt.model_checkpoint_path:
     #     saver.restore(sess, ckpt.model_checkpoint_path)
@@ -241,6 +240,9 @@ def train():
 
     init = tf.global_variables_initializer()
     sess.run(init)
+    
+    print("Restoring from:", FLAGS.checkpoint)
+    saver.restore(sess, FLAGS.checkpoint)
 
     coord = tf.train.Coordinator()
 
@@ -254,6 +256,9 @@ def train():
 
     threads = tf.train.start_queue_runners(coord=coord, sess=sess)
     run_options = tf.RunOptions(timeout_in_ms=60000)
+
+    # checkpoint_path = os.path.join(FLAGS.train_dir, 'model_base.ckpt')
+    # saver.save(sess, checkpoint_path)
 
     # try: 
     for step in xrange(FLAGS.max_steps):
@@ -318,8 +323,10 @@ def train():
         sys.stdout.flush()
 
       # Save the model checkpoint periodically.
+      # if step < 10:
       if step % FLAGS.checkpoint_step == 0 or (step + 1) == FLAGS.max_steps:
-        print("[debug] saving checkpoint!")
+        print("[debug] saving checkpoint at step:", step)
+        
         checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
         saver.save(sess, checkpoint_path, global_step=step)
     # except Exception, e:
