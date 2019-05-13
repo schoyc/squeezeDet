@@ -45,6 +45,8 @@ tf.app.flags.DEFINE_boolean('save_eval', False,
 tf.app.flags.DEFINE_string('net', 'squeezeDet',
                            """Neural net architecture.""")
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
+tf.app.flags.DEFINE_string('tag', "",
+                             """_train or _val""")
 
 
 def eval_once(
@@ -172,7 +174,8 @@ def evaluate():
       mc.LOAD_PRETRAINED_MODEL = False
       model = SqueezeDetPlus(mc)
 
-    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc, eval_csv="./eval_results_adv.csv" if FLAGS.save_eval else None)
+    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc, eval_csv="./eval_results.csv" if FLAGS.save_eval else None,
+                  subset_tag=FLAGS.tag)
 
     # add summary ops and placeholders
     ap_names = []

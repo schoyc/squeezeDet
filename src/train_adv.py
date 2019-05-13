@@ -47,6 +47,9 @@ tf.app.flags.DEFINE_integer('summary_step', 10,
 tf.app.flags.DEFINE_integer('checkpoint_step', 1000,
                             """Number of steps to save summary.""")
 tf.app.flags.DEFINE_string('gpu', '0', """gpu id.""")
+tf.app.flags.DEFINE_string('tag', "_train",
+                             """train or val""")
+
 
 
 def _draw_box(im, box_list, label_list, color=(0,255,0), cdict=None, form='center'):

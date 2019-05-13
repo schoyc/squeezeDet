@@ -14,7 +14,7 @@ from dataset.imdb import imdb
 from sqdet_utils.util import bbox_transform_inv, batch_iou
 
 class vkitti(imdb):
-  def __init__(self, image_set, data_path, mc, eval_csv=None):
+  def __init__(self, image_set, data_path, mc, eval_csv=None, subset_tag=""):
     imdb.__init__(self, 'vkitti_'+image_set, mc)
     self._image_set = image_set
     self._data_root_path = data_path
@@ -37,10 +37,11 @@ class vkitti(imdb):
 
     self._eval_tool = './src/dataset/kitti-eval/cpp/evaluate_object'
     self.eval_csv = eval_csv
+    self.subset_tag = subset_tag
 
   def _load_image_set_idx(self):
     image_set_file = os.path.join(
-        self._data_root_path, 'ImageSets', self._image_set+'.txt')
+        self._data_root_path, 'ImageSets', self._image_set+ self.subset_tag +'.txt')
     assert os.path.exists(image_set_file), \
         'File does not exist: {}'.format(image_set_file)
 
