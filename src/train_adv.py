@@ -116,7 +116,7 @@ def train():
     if FLAGS.net == 'squeezeDet':
       mc = kitti_squeezeDet_config()
       mc.LOAD_PRETRAINED_MODEL = False
-      mc.LEARNING_RATE = 1e-3
+      mc.LEARNING_RATE = 1e-2
       mc.IS_TRAINING = True
       # mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDet(mc)
@@ -126,7 +126,7 @@ def train():
       mc.PRETRAINED_MODEL_PATH = FLAGS.pretrained_model_path
       model = SqueezeDetPlus(mc)
 
-    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc)
+    imdb = vkitti(FLAGS.image_set, FLAGS.data_path, mc, subset_tag=FLAGS.tag)
 
     # save model size, flops, activations by layers
     with open(os.path.join(FLAGS.train_dir, 'model_metrics.txt'), 'w') as f:
